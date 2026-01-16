@@ -1,9 +1,5 @@
 import { Server } from "socket.io";
-import {
-  handleMessage,
-  conversations,
-  pendingTasks,
-} from "../services/chat.service";
+import { handleMessage, conversations } from "../services/chat.service";
 import { resolveAssignee } from "../utils/utils";
 import users from "../data/users.json";
 
@@ -23,11 +19,8 @@ export const setupChatSocket = (io: Server) => {
       }
 
       const { full, parsed, messages } = await handleMessage(from, to, content);
-      console.log(full, "full");
-      console.log(parsed, "parsed");
-      console.log(messages, "messages");
+
       if (!parsed) {
-        console.log('erhe  called');
         conversations.set(from, messages);
         socket.emit("message", { from: "bot", content: full });
         return;
@@ -35,7 +28,6 @@ export const setupChatSocket = (io: Server) => {
 
       if (parsed.type === "assign_task") {
         conversations.delete(from);
-        pendingTasks.delete(from);
 
         const resolution = resolveAssignee(parsed.assignee, users);
         if (!resolution) {

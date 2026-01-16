@@ -1,6 +1,12 @@
 import { openai } from "../config/openai";
+import { z } from "zod";
 
-export const pendingTasks = new Map<string, any>();
+const TaskSchema = z.object({
+  type: z.literal("assign_task"),
+  assignee: z.string().min(1),
+  task: z.string().min(1),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
 export const conversations = new Map<string, any[]>();
 
 const TODAY_ISO = new Date().toISOString();
@@ -60,14 +66,7 @@ export const handleMessage = async (
   const messages = conversations.get(from) ?? [
     { role: "system", content: SYSTEM_PROMPT },
   ];
-  if (pendingTasks.has(from)) {
-    messages.push({
-      role: "system",
-      content: `Pending task context: ${JSON.stringify(
-        pendingTasks.get(from)
-      )}`,
-    });
-  }
+
   messages.push({ role: "user", content });
 
   const stream = await openai.responses.create({
@@ -82,10 +81,14 @@ export const handleMessage = async (
       full += event.delta;
     }
   }
-
   let parsed: any = null;
   try {
     parsed = JSON.parse(full);
+    const result = TaskSchema.safeParse(parsed);
+
+    if (result.success) {
+      parsed = result.data; 
+    }
   } catch {}
 
   return { full, parsed, messages };
