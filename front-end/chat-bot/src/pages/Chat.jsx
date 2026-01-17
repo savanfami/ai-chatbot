@@ -102,11 +102,36 @@ export const Chat = ({ currentUser, socket }) => {
 
   const getAvatarColor = (id) => {
     const colors = [
-      "#667eea", "#f56565", "#48bb78", "#ed8936", 
-      "#9f7aea", "#38b2ac", "#ed64a6", "#4299e1"
+      "#667eea",
+      "#f56565",
+      "#48bb78",
+      "#ed8936",
+      "#9f7aea",
+      "#38b2ac",
+      "#ed64a6",
+      "#4299e1",
     ];
-    const index = id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const index = id
+      .split("")
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return colors[index % colors.length];
+  };
+
+  const handleSelectUser = async (user) => {
+    setActiveUser(user);
+
+    try {
+      const res = await axios.get(
+        `http://localhost:3001/messages/conversation/${currentUser.id}/${user.id}`,
+      );
+      console.log(res, "response");
+      setMessages((prev) => ({
+        ...prev,
+        [user.id]: res.data,
+      }));
+    } catch (err) {
+      console.error("Failed to fetch messages:", err);
+    }
   };
 
   return (
@@ -115,16 +140,18 @@ export const Chat = ({ currentUser, socket }) => {
       <div style={styles.sidebar}>
         <div style={styles.sidebarHeader}>
           <div style={styles.currentUserAvatar}>
-            <div 
+            <div
               style={{
                 ...styles.avatarCircle,
-                background: getAvatarColor(currentUser.id)
+                background: getAvatarColor(currentUser.id),
               }}
             >
               {getInitials(currentUser.displayName)}
             </div>
             <div style={styles.currentUserInfo}>
-              <div style={styles.currentUserName}>{currentUser.displayName}</div>
+              <div style={styles.currentUserName}>
+                {currentUser.displayName}
+              </div>
               <div style={styles.onlineStatus}>
                 <span style={styles.onlineDot}></span>
                 Online
@@ -138,30 +165,37 @@ export const Chat = ({ currentUser, socket }) => {
           {users.map((u) => {
             const isActive = activeUser?.id === u.id;
             const hasMessages = messages[u.id]?.length > 0;
-            const lastMessage = hasMessages 
-              ? messages[u.id][messages[u.id].length - 1].content.slice(0, 40) + "..."
+            const lastMessage = hasMessages
+              ? messages[u.id][messages[u.id].length - 1].content.slice(0, 40) +
+                "..."
               : "Start a conversation";
 
             return (
               <div
                 key={u.id}
-                onClick={() => setActiveUser(u)}
+                onClick={() => handleSelectUser(u)}
                 style={{
                   ...styles.userItem,
                   background: isActive ? "#eef2ff" : "transparent",
-                  borderLeft: isActive ? "3px solid #667eea" : "3px solid transparent",
+                  borderLeft: isActive
+                    ? "3px solid #667eea"
+                    : "3px solid transparent",
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) e.currentTarget.style.background = "#f9fafb";
                 }}
                 onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.background = "transparent";
+                  if (!isActive)
+                    e.currentTarget.style.background = "transparent";
                 }}
               >
-                <div 
+                <div
                   style={{
                     ...styles.userAvatar,
-                    background: u.id === "bot" ? "linear-gradient(135deg, #667eea, #764ba2)" : getAvatarColor(u.id)
+                    background:
+                      u.id === "bot"
+                        ? "linear-gradient(135deg, #667eea, #764ba2)"
+                        : getAvatarColor(u.id),
                   }}
                 >
                   {u.id === "bot" ? "🤖" : getInitials(u.displayName)}
@@ -182,15 +216,18 @@ export const Chat = ({ currentUser, socket }) => {
           <>
             <div style={styles.header}>
               <div style={styles.headerContent}>
-                <div 
+                <div
                   style={{
                     ...styles.headerAvatar,
-                    background: activeUser.id === "bot" 
-                      ? "linear-gradient(135deg, #667eea, #764ba2)" 
-                      : getAvatarColor(activeUser.id)
+                    background:
+                      activeUser.id === "bot"
+                        ? "linear-gradient(135deg, #667eea, #764ba2)"
+                        : getAvatarColor(activeUser.id),
                   }}
                 >
-                  {activeUser.id === "bot" ? "🤖" : getInitials(activeUser.displayName)}
+                  {activeUser.id === "bot"
+                    ? "🤖"
+                    : getInitials(activeUser.displayName)}
                 </div>
                 <div>
                   <div style={styles.headerName}>{activeUser.displayName}</div>
@@ -225,34 +262,50 @@ export const Chat = ({ currentUser, socket }) => {
                   >
                     {isBotGenerated && (
                       <div style={styles.botLabel}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{marginRight: 4}}>
-                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          style={{ marginRight: 4 }}
+                        >
+                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                         </svg>
                         Generated by AI
                       </div>
                     )}
 
-                    <div style={{display: "flex", alignItems: "flex-end", gap: 8, maxWidth: "75%"}}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-end",
+                        gap: 8,
+                        maxWidth: "75%",
+                      }}
+                    >
                       {!isMe && (
-                        <div 
+                        <div
                           style={{
                             ...styles.messageAvatar,
-                            background: activeUser.id === "bot" 
-                              ? "linear-gradient(135deg, #667eea, #764ba2)" 
-                              : getAvatarColor(activeUser.id)
+                            background:
+                              activeUser.id === "bot"
+                                ? "linear-gradient(135deg, #667eea, #764ba2)"
+                                : getAvatarColor(activeUser.id),
                           }}
                         >
-                          {activeUser.id === "bot" ? "🤖" : getInitials(activeUser.displayName)}
+                          {activeUser.id === "bot"
+                            ? "🤖"
+                            : getInitials(activeUser.displayName)}
                         </div>
                       )}
                       <div
                         style={{
                           ...styles.message,
-                          background: isMe 
-                            ? "linear-gradient(135deg, #667eea, #764ba2)" 
+                          background: isMe
+                            ? "linear-gradient(135deg, #667eea, #764ba2)"
                             : "#ffffff",
                           color: isMe ? "#fff" : "#1f2937",
-                          borderRadius: isMe 
+                          borderRadius: isMe
                             ? "18px 18px 4px 18px"
                             : "18px 18px 18px 4px",
                           boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
@@ -275,7 +328,7 @@ export const Chat = ({ currentUser, socket }) => {
                 placeholder="Type your message..."
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               />
-              <button 
+              <button
                 style={{
                   ...styles.sendBtn,
                   opacity: message.trim() ? 1 : 0.5,
@@ -291,7 +344,14 @@ export const Chat = ({ currentUser, socket }) => {
                   e.target.style.transform = "scale(1)";
                 }}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <line x1="22" y1="2" x2="11" y2="13"></line>
                   <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                 </svg>
