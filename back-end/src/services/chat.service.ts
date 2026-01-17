@@ -1,47 +1,82 @@
 import { openai } from "../config/openai";
-import { z } from "zod";
+import { zodFunction } from "openai/helpers/zod";
 import { SYSTEM_PROMPT } from "../utils/prompts";
+import { z } from "zod";
 
 const TaskSchema = z.object({
-  type: z.literal("assign_task"),
   assignee: z.string().min(1),
   task: z.string().min(1),
   deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
+
 export const conversations = new Map<string, any[]>();
 
-export const handleMessage = async (
-  from: string,
-  to: string,
-  content: string,
-) => {
+export const handleMessage = async (from: string, content: string) => {
   const messages = conversations.get(from) ?? [
     { role: "system", content: SYSTEM_PROMPT },
   ];
 
   messages.push({ role: "user", content });
 
-  const stream = await openai.responses.create({
+  const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
-    stream: true,
-    input: messages,
+    messages,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "assign_task",
+        schema: {
+          type: "object",
+          properties: {
+            assignee: { type: "string" },
+            task: { type: "string" },
+            deadline: { type: "string" },
+          },
+          required: ["assignee", "task", "deadline"],
+        },
+      },
+    },
   });
 
-  let full = "";
-  for await (const event of stream) {
-    if (event.type === "response.output_text.delta") {
-      full += event.delta;
-    }
+  const raw = completion.choices[0].message.content;
+
+  if (!raw) {
+    return { full: "", parsed: null, messages };
   }
-  let parsed: any = null;
+
   try {
-    parsed = JSON.parse(full);
-    const result = TaskSchema.safeParse(parsed);
+    const parsedJson = JSON.parse(raw);
+    console.log(parsedJson, "parsed json");
+    const validation = TaskSchema.safeParse(parsedJson);
 
-    if (result.success) {
-      parsed = result.data;
+    if (!validation.success) {
+      return {
+        full: "Invalid task format. Please provide assignee, task, and deadline.",
+        parsed: null,
+        messages,
+      };
     }
-  } catch {}
 
-  return { full, parsed, messages };
+    const parsed = {
+      type: "assign_task" as const,
+      ...validation.data,
+    };
+
+    messages.push({
+      role: "assistant",
+      content: JSON.stringify(parsed),
+    });
+
+    return {
+      full: JSON.stringify(parsed),
+      parsed,
+      messages,
+    };
+  } catch {
+    return {
+      full: "Failed to understand the task request.",
+      parsed: null,
+      messages,
+    };
+  }
 };

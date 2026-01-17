@@ -56,7 +56,7 @@ export const setupChatSocket = (io: Server) => {
         content,
       });
 
-      const { full, parsed, messages } = await handleMessage(from, to, content);
+      const { full, parsed, messages } = await handleMessage(from, content);
 
       if (!parsed) {
         conversations.set(from, messages);

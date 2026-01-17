@@ -32,6 +32,7 @@ export const Chat = ({ currentUser, socket }) => {
     fetchUsers();
 
     socket.on("message", (msg) => {
+      console.log(msg,'message');
       setMessages((prev) => ({
         ...prev,
         [msg.from]: [...(prev[msg.from] || []), msg],
