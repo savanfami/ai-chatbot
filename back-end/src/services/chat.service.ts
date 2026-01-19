@@ -1,12 +1,17 @@
 import { openai } from "../config/openai";
-import { zodFunction } from "openai/helpers/zod";
 import { SYSTEM_PROMPT } from "../utils/prompts";
 import { z } from "zod";
+import { zodResponseFormat } from "openai/helpers/zod";
 
-const TaskSchema = z.object({
-  assignee: z.string().min(1),
-  task: z.string().min(1),
-  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+const ResponseSchema = z.object({
+  type: z.enum(["message", "assign_task"]),
+  message: z.string().nullable(),
+  assignee: z.string().nullable(),
+  task: z.string().nullable(),
+  deadline: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
 });
 
 export const conversations = new Map<string, any[]>();
@@ -21,62 +26,25 @@ export const handleMessage = async (from: string, content: string) => {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "assign_task",
-        schema: {
-          type: "object",
-          properties: {
-            assignee: { type: "string" },
-            task: { type: "string" },
-            deadline: { type: "string" },
-          },
-          required: ["assignee", "task", "deadline"],
-        },
-      },
-    },
+    response_format: zodResponseFormat(ResponseSchema, "response"),
   });
 
-  const raw = completion.choices[0].message.content;
+  const reply = completion.choices[0].message.content ?? "";
+  const parsed = JSON.parse(reply);
 
-  if (!raw) {
-    return { full: "", parsed: null, messages };
-  }
+  messages.push({ role: "assistant", content: reply });
 
-  try {
-    const parsedJson = JSON.parse(raw);
-    console.log(parsedJson, "parsed json");
-    const validation = TaskSchema.safeParse(parsedJson);
-
-    if (!validation.success) {
-      return {
-        full: "Invalid task format. Please provide assignee, task, and deadline.",
-        parsed: null,
-        messages,
-      };
-    }
-
-    const parsed = {
-      type: "assign_task" as const,
-      ...validation.data,
-    };
-
-    messages.push({
-      role: "assistant",
-      content: JSON.stringify(parsed),
-    });
-
+  if (parsed.type === "assign_task") {
     return {
-      full: JSON.stringify(parsed),
+      full: reply,
       parsed,
       messages,
     };
-  } catch {
-    return {
-      full: "Failed to understand the task request.",
-      parsed: null,
-      messages,
-    };
   }
+
+  return {
+    full: parsed.message,
+    parsed: null,
+    messages,
+  };
 };
