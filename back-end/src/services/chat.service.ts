@@ -4,8 +4,8 @@ import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 
 const ResponseSchema = z.object({
-  type: z.enum(["message", "assign_task"]),
   message: z.string().nullable(),
+  type: z.enum(["message", "assign_task"]),
   assignee: z.string().nullable(),
   task: z.string().nullable(),
   deadline: z
@@ -16,7 +16,11 @@ const ResponseSchema = z.object({
 
 export const conversations = new Map<string, any[]>();
 
-export const handleMessage = async (from: string, content: string) => {
+export const handleMessage = async (
+  from: string,
+  content: string,
+  onChunk?: (chunk: string) => void,
+) => {
   const messages = conversations.get(from) ?? [
     { role: "system", content: SYSTEM_PROMPT },
   ];
@@ -26,24 +30,36 @@ export const handleMessage = async (from: string, content: string) => {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages,
+    stream: true,
     response_format: zodResponseFormat(ResponseSchema, "response"),
   });
 
-  const reply = completion.choices[0].message.content ?? "";
-  const parsed = JSON.parse(reply);
+  let fullText = "";
 
-  messages.push({ role: "assistant", content: reply });
+  for await (const chunk of completion) {
+    const delta = chunk.choices[0]?.delta?.content ?? "";
+    fullText += delta;
+    
+    if (onChunk && delta) {
+      onChunk(delta); 
+    }
+  }
+
+
+  const parsed = JSON.parse(fullText);
+  console.log(parsed,'praaaaaaaaaaseddd');
+  messages.push({ role: "assistant", content: fullText });
 
   if (parsed.type === "assign_task") {
     return {
-      full: reply,
+      full: fullText,
       parsed,
       messages,
     };
   }
 
   return {
-    full: parsed.message,
+    full: fullText, 
     parsed: null,
     messages,
   };

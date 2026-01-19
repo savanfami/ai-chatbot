@@ -14,6 +14,47 @@ export const Chat = ({ currentUser, socket }) => {
   const [messages, setMessages] = useState({});
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm",
+      });
+
+      audioChunksRef.current = [];
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+
+        sendAudio(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone access denied:", err);
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -31,8 +72,9 @@ export const Chat = ({ currentUser, socket }) => {
     };
     fetchUsers();
 
+    // Handle regular messages
     socket.on("message", (msg) => {
-      console.log(msg,'message');
+      console.log(msg, "message");
       setMessages((prev) => ({
         ...prev,
         [msg.from]: [...(prev[msg.from] || []), msg],
@@ -40,36 +82,96 @@ export const Chat = ({ currentUser, socket }) => {
       setIsTyping(false);
     });
 
-    socket.on("ai_chunk", (chunk) => {
-      setIsTyping(true);
+    // Handle streaming chunks from AI
+    socket.on("message_chunk", ({ chunk }) => {
       setMessages((prev) => {
-        const last = prev["bot"]?.[prev["bot"].length - 1];
+        const botMessages = prev["bot"] || [];
+        const lastMessage = botMessages[botMessages.length - 1];
 
-        if (last && !last.final) {
-          const updated = {
-            ...last,
-            content: last.content + chunk,
+        if (lastMessage && lastMessage.streaming) {
+          const updatedMessage = {
+            ...lastMessage,
+            rawContent: (lastMessage.rawContent || "") + chunk,
+            content: extractMessage((lastMessage.rawContent || "") + chunk), // Extract message from JSON
           };
           return {
             ...prev,
-            bot: [...prev["bot"].slice(0, -1), updated],
+            bot: [...botMessages.slice(0, -1), updatedMessage],
           };
         }
 
         return {
           ...prev,
           bot: [
-            ...(prev["bot"] || []),
-            { from: "bot", content: chunk, final: false },
+            ...botMessages,
+            {
+              from: "bot",
+              rawContent: chunk,
+              content: extractMessage(chunk),
+              streaming: true,
+              generatedBy: "bot",
+            },
           ],
         };
       });
-      setTimeout(() => setIsTyping(false), 1000);
+    });
+
+    // Helper function to extract message from JSON
+    const extractMessage = (jsonStr) => {
+      try {
+        const match = jsonStr.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (match) {
+          return match[1]
+            .replace(/\\n/g, "\n")
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, "\\");
+        }
+      } catch (e) {
+        // JSON incomplete, return empty
+      }
+      return "";
+    };
+
+    // Handle message completion
+    socket.on("message_complete", ({ from, content }) => {
+      setIsTyping(false);
+      setMessages((prev) => {
+        const userMessages = prev[from] || [];
+        const lastMessage = userMessages[userMessages.length - 1];
+
+        // If last message was streaming, mark it as complete
+        if (lastMessage && lastMessage.streaming) {
+          const completedMessage = {
+            ...lastMessage,
+            streaming: false,
+            content: lastMessage.content, // Keep the accumulated content
+          };
+          return {
+            ...prev,
+            [from]: [...userMessages.slice(0, -1), completedMessage],
+          };
+        }
+
+        // Otherwise, add as a new complete message
+        return {
+          ...prev,
+          [from]: [
+            ...userMessages,
+            {
+              from,
+              content,
+              streaming: false,
+              generatedBy: from === "bot" ? "bot" : undefined,
+            },
+          ],
+        };
+      });
     });
 
     return () => {
       socket.off("message");
-      socket.off("ai_chunk");
+      socket.off("message_chunk");
+      socket.off("message_complete");
     };
   }, []);
 
@@ -250,6 +352,7 @@ export const Chat = ({ currentUser, socket }) => {
               {(messages[activeUser.id] || []).map((m, i) => {
                 const isMe = m.from === currentUser.id;
                 const isBotGenerated = m.generatedBy === "bot";
+                const isStreaming = m.streaming === true;
 
                 return (
                   <div
@@ -273,6 +376,13 @@ export const Chat = ({ currentUser, socket }) => {
                           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                         </svg>
                         Generated by AI
+                        {isStreaming && (
+                          <span style={styles.streamingIndicator}>
+                            <span style={styles.streamingDot}></span>
+                            <span style={styles.streamingDot}></span>
+                            <span style={styles.streamingDot}></span>
+                          </span>
+                        )}
                       </div>
                     )}
 
@@ -310,9 +420,11 @@ export const Chat = ({ currentUser, socket }) => {
                             ? "18px 18px 4px 18px"
                             : "18px 18px 18px 4px",
                           boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                          opacity: isStreaming ? 0.95 : 1,
                         }}
                       >
                         {m.content}
+                        {isStreaming && <span style={styles.cursor}>|</span>}
                       </div>
                     </div>
                   </div>
@@ -391,6 +503,17 @@ export const Chat = ({ currentUser, socket }) => {
         @keyframes typing {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 1; }
+        }
+
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+
+        @keyframes streamingDots {
+          0%, 20% { opacity: 0.3; }
+          50% { opacity: 1; }
+          100% { opacity: 0.3; }
         }
       `}</style>
     </div>
@@ -594,8 +717,25 @@ const styles = {
     fontWeight: 600,
     display: "flex",
     alignItems: "center",
+    gap: 8,
     textTransform: "uppercase",
     letterSpacing: "0.5px",
+  },
+  streamingIndicator: {
+    display: "flex",
+    gap: 3,
+  },
+  streamingDot: {
+    width: 4,
+    height: 4,
+    borderRadius: "50%",
+    background: "#667eea",
+    animation: "streamingDots 1.4s ease-in-out infinite",
+  },
+  cursor: {
+    marginLeft: 2,
+    animation: "blink 1s step-end infinite",
+    fontWeight: 300,
   },
   inputBar: {
     padding: 16,

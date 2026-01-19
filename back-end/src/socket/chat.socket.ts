@@ -56,7 +56,14 @@ export const setupChatSocket = (io: Server) => {
         content,
       });
 
-      const { full, parsed, messages } = await handleMessage(from, content);
+      const { full, parsed, messages } = await handleMessage(
+        from,
+        content,
+        (chunk) => {
+          console.log(chunk,'chunk');
+          socket.emit("message_chunk", { chunk });
+        },
+      );
 
       if (!parsed) {
         conversations.set(from, messages);
@@ -78,7 +85,7 @@ export const setupChatSocket = (io: Server) => {
           generatedBy: "bot",
         });
 
-        socket.emit("message", { from: "bot", content: full });
+        socket.emit("message_complete", { from: "bot", content: full });
         return;
       }
 
@@ -87,9 +94,9 @@ export const setupChatSocket = (io: Server) => {
 
         const resolution = resolveAssignee(parsed.assignee, users);
         if (!resolution) {
-          socket.emit("message", {
+          socket.emit("message_complete", {
             from: "bot",
-            content: `I couldn’t find a user named "${parsed.assignee}".`,
+            content: `I couldn't find a user named "${parsed.assignee}".`,
           });
           return;
         }
@@ -135,9 +142,9 @@ export const setupChatSocket = (io: Server) => {
           generatedBy: "bot",
         });
 
-        socket.emit("message", {
+        socket.emit("message_complete", {
           from: "bot",
-          content: " Task assigned successfully",
+          content: "Task assigned successfully",
         });
       }
     });
