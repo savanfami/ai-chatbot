@@ -60,11 +60,11 @@ export const setupChatSocket = (io: Server) => {
         from,
         content,
         (chunk) => {
-          console.log(chunk, "chunk");
+          // console.log(chunk, "chunk");
           socket.emit("message_chunk", { chunk });
         },
       );
-
+console.log(parsed,'parsed');
       if (parsed.type === "message") {
         conversations.set(from, messages);
         const botConversation =
@@ -91,6 +91,7 @@ export const setupChatSocket = (io: Server) => {
         conversations.delete(from);
 
         const resolution = resolveAssignee(parsed.assignee, users);
+        console.log(resolution,'resolution');
         if (!resolution) {
           socket.emit("message_complete", {
             from: "bot",
