@@ -5,6 +5,7 @@ import users from "../data/users.json";
 import { Conversation } from "../model/conversation";
 import { Message } from "../model/message";
 import { v4 as uuidv4 } from "uuid";
+import { deepgram } from "../config/deepgram";
 
 export const setupChatSocket = (io: Server) => {
   io.on("connection", (socket) => {
@@ -60,11 +61,9 @@ export const setupChatSocket = (io: Server) => {
         from,
         content,
         (chunk) => {
-          // console.log(chunk, "chunk");
           socket.emit("message_chunk", { chunk });
         },
       );
-console.log(parsed,'parsed');
       if (parsed.type === "message") {
         conversations.set(from, messages);
         const botConversation =
@@ -91,7 +90,7 @@ console.log(parsed,'parsed');
         conversations.delete(from);
 
         const resolution = resolveAssignee(parsed.assignee, users);
-        console.log(resolution,'resolution');
+        console.log(resolution, "resolution");
         if (!resolution) {
           socket.emit("message_complete", {
             from: "bot",
@@ -145,6 +144,29 @@ console.log(parsed,'parsed');
           from: "bot",
           content: "Task assigned successfully",
         });
+      }
+    });
+
+    socket.on("audio_message", async ({ from, to, audioBuffer, mimeType }) => {
+      console.log(audioBuffer, mimeType);
+      try {
+        const { result, error } =
+          await deepgram.listen.prerecorded.transcribeFile(audioBuffer, {
+            model: "nova-2",
+            language: "en-IN",
+            smart_format: true,
+            punctuate: true,
+            mimetype: mimeType, 
+          });
+
+        if (error) throw error;
+
+        const text = result.results.channels[0].alternatives[0].transcript;
+        console.log(text, "textttt");
+        socket.emit("transcription", { from, content: text });
+      } catch (err: any) {
+        console.error("Deepgram transcription error:", err);
+        socket.emit("transcription_error", { error: err.message });
       }
     });
   });

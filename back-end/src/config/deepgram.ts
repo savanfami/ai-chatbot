@@ -1,5 +1,4 @@
 import { createClient } from "@deepgram/sdk";
-import { handleMessage } from "../services/chat.service";
 
 export const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 const connection = deepgram.listen.live({

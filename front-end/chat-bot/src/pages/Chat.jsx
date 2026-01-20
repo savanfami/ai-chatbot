@@ -84,7 +84,7 @@ export const Chat = ({ currentUser, socket }) => {
 
     // Handle streaming chunks from AI
     socket.on("message_chunk", ({ chunk }) => {
-      console.log(chunk,'chunkkkkkkkkkkkkkkkkk');
+      console.log(chunk, "chunkkkkkkkkkkkkkkkkk");
       setIsTyping(true);
 
       setMessages((prev) => {
@@ -120,22 +120,6 @@ export const Chat = ({ currentUser, socket }) => {
         };
       });
     });
-
-    // Helper function to extract message from JSON
-    const extractMessage = (jsonStr) => {
-      try {
-        const match = jsonStr.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (match) {
-          return match[1]
-            .replace(/\\n/g, "\n")
-            .replace(/\\"/g, '"')
-            .replace(/\\\\/g, "\\");
-        }
-      } catch (e) {
-        // JSON incomplete, return empty
-      }
-      return "";
-    };
 
     // Handle message completion
     socket.on("message_complete", ({ from, content }) => {
@@ -197,6 +181,31 @@ export const Chat = ({ currentUser, socket }) => {
     }));
 
     setMessage("");
+  };
+
+  const sendAudio = async (audioBlob) => {
+    if (!activeUser) return;
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const audioMsg = {
+      from: currentUser.id,
+      to: activeUser.id,
+      type: "audio",
+      audio: URL.createObjectURL(audioBlob),
+      mimeType: audioBlob.type,
+    };
+
+    socket.emit("audio_message", {
+      from: currentUser.id,
+      to: activeUser.id,
+      audioBuffer: uint8Array,
+      mimeType: audioBlob.type,
+    });
+
+    setMessages((prev) => ({
+      ...prev,
+      [activeUser.id]: [...(prev[activeUser.id] || []), audioMsg],
+    }));
   };
 
   const getInitials = (name) => {
@@ -272,10 +281,13 @@ export const Chat = ({ currentUser, socket }) => {
         <div style={styles.usersList}>
           {users.map((u) => {
             const isActive = activeUser?.id === u.id;
-            const hasMessages = messages[u.id]?.length > 0;
-            const lastMessage = hasMessages
-              ? messages[u.id][messages[u.id].length - 1].content.slice(0, 40) +
-                "..."
+
+            const lastMsgObj = messages[u.id]?.[messages[u.id].length - 1];
+
+            const lastMessage = lastMsgObj
+              ? lastMsgObj.type === "audio"
+                ? "🎤 Voice message"
+                : (lastMsgObj.content || "").slice(0, 40) + "..."
               : "Start a conversation";
 
             return (
@@ -428,7 +440,15 @@ export const Chat = ({ currentUser, socket }) => {
                           opacity: isStreaming ? 0.95 : 1,
                         }}
                       >
-                        {m.content}
+                        {m.type === "audio" ? (
+                          <audio
+                            controls
+                            src={m.audio}
+                            style={{ width: 220 }}
+                          />
+                        ) : (
+                          m.content
+                        )}
                         {isStreaming && <span style={styles.cursor}>|</span>}
                       </div>
                     </div>
@@ -446,6 +466,32 @@ export const Chat = ({ currentUser, socket }) => {
                 placeholder="Type your message..."
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               />
+
+              {/* 🎤 AUDIO BUTTON */}
+              <button
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onTouchStart={startRecording}
+                onTouchEnd={stopRecording}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  border: "none",
+                  marginRight: 8,
+                  background: isRecording ? "#ef4444" : "#e5e7eb",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                title="Hold to record"
+              >
+                🎤
+              </button>
+
+              {/* 📤 SEND BUTTON */}
               <button
                 style={{
                   ...styles.sendBtn,
