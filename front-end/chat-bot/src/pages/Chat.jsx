@@ -84,30 +84,35 @@ export const Chat = ({ currentUser, socket }) => {
 
     // Handle streaming chunks from AI
     socket.on("message_chunk", ({ chunk }) => {
-      setMessages((prev) => {
-        const botMessages = prev["bot"] || [];
-        const lastMessage = botMessages[botMessages.length - 1];
+      console.log(chunk,'chunkkkkkkkkkkkkkkkkk');
+      setIsTyping(true);
 
-        if (lastMessage && lastMessage.streaming) {
-          const updatedMessage = {
-            ...lastMessage,
-            rawContent: (lastMessage.rawContent || "") + chunk,
-            content: extractMessage((lastMessage.rawContent || "") + chunk), // Extract message from JSON
-          };
+      setMessages((prev) => {
+        const botMessages = prev.bot || [];
+        const last = botMessages[botMessages.length - 1];
+
+        // If already streaming, append
+        if (last?.streaming) {
           return {
             ...prev,
-            bot: [...botMessages.slice(0, -1), updatedMessage],
+            bot: [
+              ...botMessages.slice(0, -1),
+              {
+                ...last,
+                content: (last.content || "") + chunk,
+              },
+            ],
           };
         }
 
+        // First chunk → create streaming message
         return {
           ...prev,
           bot: [
             ...botMessages,
             {
               from: "bot",
-              rawContent: chunk,
-              content: extractMessage(chunk),
+              content: chunk,
               streaming: true,
               generatedBy: "bot",
             },

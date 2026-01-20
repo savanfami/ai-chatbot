@@ -4,6 +4,7 @@ export const resolveAssignee = (name: string, users: any[]) => {
   );
 
   if (matches) {
+    console.log(matches,'matchess');
     return matches[0].id;
   }
 

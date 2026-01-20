@@ -35,32 +35,46 @@ export const handleMessage = async (
   });
 
   let fullText = "";
+  let visibleText = "";
 
   for await (const chunk of completion) {
     const delta = chunk.choices[0]?.delta?.content ?? "";
+    if (!delta) continue;
+
     fullText += delta;
-    
-    if (onChunk && delta) {
-      onChunk(delta); 
+
+    const messageKeyIndex = fullText.indexOf('"message"');
+
+    if (messageKeyIndex !== -1) {
+      const afterMessage = fullText.slice(messageKeyIndex);
+
+      const firstQuote = afterMessage.indexOf(
+        '"',
+        afterMessage.indexOf(":") + 1,
+      );
+      if (firstQuote !== -1) {
+        const secondQuote = afterMessage.indexOf('"', firstQuote + 1);
+
+        const currentMessage =
+          secondQuote === -1
+            ? afterMessage.slice(firstQuote + 1)
+            : afterMessage.slice(firstQuote + 1, secondQuote);
+
+        const newText = currentMessage.slice(visibleText.length);
+
+        if (newText) {
+          visibleText += newText;
+          onChunk?.(newText);
+        }
+      }
     }
   }
 
-
   const parsed = JSON.parse(fullText);
-  console.log(parsed,'praaaaaaaaaaseddd');
-  messages.push({ role: "assistant", content: fullText });
-
-  if (parsed.type === "assign_task") {
-    return {
-      full: fullText,
-      parsed,
-      messages,
-    };
-  }
+  messages.push({ role: "assistant", content: parsed.message ?? "" });
 
   return {
-    full: fullText, 
-    parsed: null,
+    parsed,
     messages,
   };
 };

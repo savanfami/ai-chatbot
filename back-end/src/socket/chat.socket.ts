@@ -56,16 +56,16 @@ export const setupChatSocket = (io: Server) => {
         content,
       });
 
-      const { full, parsed, messages } = await handleMessage(
+      const { parsed, messages } = await handleMessage(
         from,
         content,
         (chunk) => {
-          console.log(chunk,'chunk');
+          console.log(chunk, "chunk");
           socket.emit("message_chunk", { chunk });
         },
       );
 
-      if (!parsed) {
+      if (parsed.type === "message") {
         conversations.set(from, messages);
         const botConversation =
           (await Conversation.findOne({
@@ -81,11 +81,9 @@ export const setupChatSocket = (io: Server) => {
           conversationId: botConversation.id,
           from: "bot",
           to: from,
-          content: full,
+          content: parsed.message,
           generatedBy: "bot",
         });
-
-        socket.emit("message_complete", { from: "bot", content: full });
         return;
       }
 
