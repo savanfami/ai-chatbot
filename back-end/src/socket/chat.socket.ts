@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import fs from "fs";
 import { handleMessage, conversations } from "../services/chat.service";
 import { resolveAssignee } from "../utils/utils";
 import users from "../data/users.json";
@@ -147,26 +148,69 @@ export const setupChatSocket = (io: Server) => {
       }
     });
 
-    socket.on("audio_message", async ({ from, to, audioBuffer, mimeType }) => {
-      console.log(audioBuffer, mimeType);
+    socket.on("audio_message", async ({ from, to, audioBase64, mimeType }) => {
       try {
+        const audioBuffer = Buffer.from(audioBase64, "base64");
         const { result, error } =
           await deepgram.listen.prerecorded.transcribeFile(audioBuffer, {
             model: "nova-2",
             language: "en-IN",
             smart_format: true,
             punctuate: true,
-            mimetype: mimeType, 
+            mimetype: mimeType,
           });
 
         if (error) throw error;
 
         const text = result.results.channels[0].alternatives[0].transcript;
-        console.log(text, "textttt");
-        socket.emit("transcription", { from, content: text });
+
+        if (!text.trim()) {
+          console.log("Audio too short to transcribe. Skipping TTS.");
+          socket.emit("audio_response", {
+            from: to,
+            to: from,
+            audioBase64: null,
+            mimeType: null,
+            transcript: "",
+          });
+          return;
+        }
+
+        console.log("Transcript:", text);
+
+        const ttsResponse = await deepgram.speak.request(
+          { text },
+          {
+            model: "aura-luna-en",
+            encoding: "linear16",
+            container: "wav",
+            sample_rate: 48000,
+          },
+        );
+
+        const stream = await ttsResponse.getStream();
+        if (!stream) throw new Error("Failed to get TTS audio stream");
+
+        const chunks: any[] = [];
+        for await (const chunk of stream) {
+          chunks.push(chunk);
+        }
+        const ttsAudioBuffer = Buffer.concat(chunks);
+
+        const ttsAudioBase64 = ttsAudioBuffer.toString("base64");
+
+        socket.emit("audio_response", {
+          from: to,
+          to: from,
+          audioBase64: ttsAudioBase64,
+          mimeType: "audio/wav",
+          transcript: text,
+        });
+
+        console.log("TTS audio sent successfully");
       } catch (err: any) {
-        console.error("Deepgram transcription error:", err);
-        socket.emit("transcription_error", { error: err.message });
+        console.log("Error:", err);
+        socket.emit("error", { message: err.message });
       }
     });
   });

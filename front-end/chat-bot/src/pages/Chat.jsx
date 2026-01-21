@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
-
 const AI_USER = {
   id: "bot",
   displayName: "AI Assistant 🤖",
@@ -39,6 +38,7 @@ export const Chat = ({ currentUser, socket }) => {
         const audioBlob = new Blob(audioChunksRef.current, {
           type: "audio/webm",
         });
+        console.log("Recorded audioBlob size:", audioBlob.size);
 
         sendAudio(audioBlob);
         stream.getTracks().forEach((track) => track.stop());
@@ -71,6 +71,33 @@ export const Chat = ({ currentUser, socket }) => {
       setUsers([...otherUsers, AI_USER]);
     };
     fetchUsers();
+    socket.on(
+      "audio_response",
+      ({ from, audioBase64, mimeType, transcript }) => {
+        console.log("Received audio response from:", from);
+
+        // Convert Base64 to a Blob
+        const audioBlob = new Blob(
+          [Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0))],
+          { type: mimeType },
+        );
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        // Add to messages state
+        setMessages((prev) => ({
+          ...prev,
+          [from]: [
+            ...(prev[from] || []),
+            {
+              from,
+              type: "audio",
+              audio: audioUrl,
+              transcript,
+            },
+          ],
+        }));
+      },
+    );
 
     // Handle regular messages
     socket.on("message", (msg) => {
@@ -161,6 +188,7 @@ export const Chat = ({ currentUser, socket }) => {
       socket.off("message");
       socket.off("message_chunk");
       socket.off("message_complete");
+      socket.off("audio_response");
     };
   }, []);
 
@@ -183,10 +211,23 @@ export const Chat = ({ currentUser, socket }) => {
     setMessage("");
   };
 
+  const blobToBase64 = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        // reader.result = "data:audio/webm;base64,AAAA..."
+        const base64 = reader.result.split(",")[1]; // raw Base64 only
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
   const sendAudio = async (audioBlob) => {
     if (!activeUser) return;
-    const arrayBuffer = await audioBlob.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
+
+    const base64Audio = await blobToBase64(audioBlob);
+
     const audioMsg = {
       from: currentUser.id,
       to: activeUser.id,
@@ -198,7 +239,7 @@ export const Chat = ({ currentUser, socket }) => {
     socket.emit("audio_message", {
       from: currentUser.id,
       to: activeUser.id,
-      audioBuffer: uint8Array,
+      audioBase64: base64Audio,
       mimeType: audioBlob.type,
     });
 

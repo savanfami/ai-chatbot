@@ -52,10 +52,8 @@ export const handleMessage = async (
     const colonIndex = afterMessage.indexOf(":");
     if (colonIndex === -1) continue;
 
-    // ✅ NEW: check if message value is actually a string
     const valueAfterColon = afterMessage.slice(colonIndex + 1).trim();
 
-    // 🚫 message is null → do NOT stream anything
     if (!valueAfterColon.startsWith('"')) {
       continue;
     }
