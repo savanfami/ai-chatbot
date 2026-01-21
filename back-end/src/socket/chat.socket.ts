@@ -1,5 +1,4 @@
 import { Server } from "socket.io";
-import fs from "fs";
 import { handleMessage, conversations } from "../services/chat.service";
 import { resolveAssignee } from "../utils/utils";
 import users from "../data/users.json";
@@ -7,6 +6,7 @@ import { Conversation } from "../model/conversation";
 import { Message } from "../model/message";
 import { v4 as uuidv4 } from "uuid";
 import { deepgram } from "../config/deepgram";
+import { streamCartesiaTTS } from "../config/cartesia";
 
 export const setupChatSocket = (io: Server) => {
   io.on("connection", (socket) => {
@@ -91,7 +91,7 @@ export const setupChatSocket = (io: Server) => {
         conversations.delete(from);
 
         const resolution = resolveAssignee(parsed.assignee, users);
-        console.log(resolution, "resolution");
+
         if (!resolution) {
           socket.emit("message_complete", {
             from: "bot",
@@ -176,41 +176,63 @@ export const setupChatSocket = (io: Server) => {
           return;
         }
 
-        console.log("Transcript:", text);
+        console.log("Transcript ", text);
 
-        const ttsResponse = await deepgram.speak.request(
-          { text },
-          {
-            model: "aura-luna-en",
-            encoding: "linear16",
-            container: "wav",
-            sample_rate: 48000,
+        // const ttsResponse = await deepgram.speak.request(
+        //   { text },
+        //   {
+        //     model: "aura-luna-en",
+        //     encoding: "linear16",
+        //     container: "wav",
+        //     sample_rate: 48000,
+        //   },
+        // );
+
+        // const stream = await ttsResponse.getStream();
+        // if (!stream) throw new Error("Failed to get TTS audio stream");
+
+        // const chunks: any[] = [];
+        // for await (const chunk of stream) {
+        //   chunks.push(chunk);
+        // }
+        // const ttsAudioBuffer = Buffer.concat(chunks);
+
+        // const ttsAudioBase64 = ttsAudioBuffer.toString("base64");
+
+        // socket.emit("audio_response", {
+        //   from: to,
+        //   to: from,
+        //   audioBase64: ttsAudioBase64,
+        //   mimeType: "audio/wav",
+        //   transcript: text,
+        // });
+
+        streamCartesiaTTS(
+          text,
+          (chunk) => {
+            console.log(chunk, "chunkkkkkkkkkkkkk");
+            socket.emit("audio_response_chunk", {
+              from: to,
+              to: from,
+              audioBase64: chunk.toString("base64"),
+              mimeType: "audio/wav",
+            });
+          },
+          () => {
+            socket.emit("audio_response_end", {
+              from: to,
+              to: from,
+              transcript: text,
+            });
+          },
+          (err) => {
+            console.error("Cartesia TTS error:", err);
           },
         );
 
-        const stream = await ttsResponse.getStream();
-        if (!stream) throw new Error("Failed to get TTS audio stream");
-
-        const chunks: any[] = [];
-        for await (const chunk of stream) {
-          chunks.push(chunk);
-        }
-        const ttsAudioBuffer = Buffer.concat(chunks);
-
-        const ttsAudioBase64 = ttsAudioBuffer.toString("base64");
-
-        socket.emit("audio_response", {
-          from: to,
-          to: from,
-          audioBase64: ttsAudioBase64,
-          mimeType: "audio/wav",
-          transcript: text,
-        });
-
-        console.log("TTS audio sent successfully");
+        console.log("audio sent successfully !!!");
       } catch (err: any) {
         console.log("Error:", err);
-        socket.emit("error", { message: err.message });
       }
     });
   });

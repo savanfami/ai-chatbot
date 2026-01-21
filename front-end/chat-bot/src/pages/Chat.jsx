@@ -17,6 +17,66 @@ export const Chat = ({ currentUser, socket }) => {
   const audioChunksRef = useRef([]);
   const [isRecording, setIsRecording] = useState(false);
 
+  // Audio playback refs
+  const audioContextRef = useRef(null);
+  const audioBufferQueueRef = useRef([]);
+  const isPlayingRef = useRef(false);
+  const nextStartTimeRef = useRef(0);
+
+  // Initialize Web Audio API context
+  const initAudioContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (
+        window.AudioContext || window.webkitAudioContext
+      )();
+      nextStartTimeRef.current = audioContextRef.current.currentTime;
+    }
+  };
+
+  // Play audio chunk using Web Audio API
+  const playAudioChunk = async (pcmData) => {
+    initAudioContext();
+    const audioContext = audioContextRef.current;
+
+    try {
+      // PCM data is 16-bit signed integers at 44100 Hz
+      const sampleRate = 44100;
+      const numberOfChannels = 1; // mono
+      const numSamples = pcmData.length / 2; // 2 bytes per sample (16-bit)
+
+      // Create an AudioBuffer
+      const audioBuffer = audioContext.createBuffer(
+        numberOfChannels,
+        numSamples,
+        sampleRate,
+      );
+
+      // Convert PCM bytes to Float32Array for Web Audio API
+      const channelData = audioBuffer.getChannelData(0);
+      const dataView = new DataView(pcmData.buffer);
+
+      for (let i = 0; i < numSamples; i++) {
+        // Read 16-bit signed integer and convert to float (-1.0 to 1.0)
+        const int16 = dataView.getInt16(i * 2, true); // true = little endian
+        channelData[i] = int16 / 32768.0;
+      }
+
+      // Create a buffer source
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+
+      // Schedule playback
+      const currentTime = audioContext.currentTime;
+      const startTime = Math.max(currentTime, nextStartTimeRef.current);
+
+      source.start(startTime);
+      nextStartTimeRef.current = startTime + audioBuffer.duration;
+    } catch (err) {
+      console.error("Error playing audio chunk:", err);
+    }
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -71,33 +131,41 @@ export const Chat = ({ currentUser, socket }) => {
       setUsers([...otherUsers, AI_USER]);
     };
     fetchUsers();
-    socket.on(
-      "audio_response",
-      ({ from, audioBase64, mimeType, transcript }) => {
-        console.log("Received audio response from:", from);
 
-        // Convert Base64 to a Blob
-        const audioBlob = new Blob(
-          [Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0))],
-          { type: mimeType },
-        );
-        const audioUrl = URL.createObjectURL(audioBlob);
+    // Handle audio response chunks
+    socket.on("audio_response_chunk", ({ audioBase64, mimeType }) => {
+      console.log("Received audio chunk, size:", audioBase64.length);
 
-        // Add to messages state
-        setMessages((prev) => ({
-          ...prev,
-          [from]: [
-            ...(prev[from] || []),
-            {
-              from,
-              type: "audio",
-              audio: audioUrl,
-              transcript,
-            },
-          ],
-        }));
-      },
-    );
+      // Decode base64 to binary
+      const binary = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
+
+      // Play the chunk immediately
+      playAudioChunk(binary);
+    });
+
+    // Handle audio response end
+    socket.on("audio_response_end", ({ transcript }) => {
+      console.log("Audio playback complete, transcript:", transcript);
+
+      // Reset audio timing for next message
+      if (audioContextRef.current) {
+        nextStartTimeRef.current = audioContextRef.current.currentTime;
+      }
+
+      // Add bot's transcript as a message
+      setMessages((prev) => ({
+        ...prev,
+        bot: [
+          ...(prev.bot || []),
+          {
+            from: "bot",
+            content: transcript,
+            type: "text",
+            generatedBy: "bot",
+          },
+        ],
+      }));
+    });
 
     // Handle regular messages
     socket.on("message", (msg) => {
@@ -111,7 +179,7 @@ export const Chat = ({ currentUser, socket }) => {
 
     // Handle streaming chunks from AI
     socket.on("message_chunk", ({ chunk }) => {
-      console.log(chunk, "chunkkkkkkkkkkkkkkkkk");
+      console.log(chunk, "text chunk");
       setIsTyping(true);
 
       setMessages((prev) => {
@@ -141,6 +209,7 @@ export const Chat = ({ currentUser, socket }) => {
               from: "bot",
               content: chunk,
               streaming: true,
+              type: "text",
               generatedBy: "bot",
             },
           ],
@@ -160,7 +229,7 @@ export const Chat = ({ currentUser, socket }) => {
           const completedMessage = {
             ...lastMessage,
             streaming: false,
-            content: lastMessage.content, // Keep the accumulated content
+            content: lastMessage.content,
           };
           return {
             ...prev,
@@ -177,6 +246,7 @@ export const Chat = ({ currentUser, socket }) => {
               from,
               content,
               streaming: false,
+              type: "text",
               generatedBy: from === "bot" ? "bot" : undefined,
             },
           ],
@@ -188,7 +258,13 @@ export const Chat = ({ currentUser, socket }) => {
       socket.off("message");
       socket.off("message_chunk");
       socket.off("message_complete");
-      socket.off("audio_response");
+      socket.off("audio_response_chunk");
+      socket.off("audio_response_end");
+
+      // Cleanup audio context
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
     };
   }, []);
 
@@ -199,6 +275,7 @@ export const Chat = ({ currentUser, socket }) => {
       from: currentUser.id,
       to: activeUser.id,
       content: message,
+      type: "text",
     };
 
     socket.emit("message", msg);
@@ -215,8 +292,7 @@ export const Chat = ({ currentUser, socket }) => {
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        // reader.result = "data:audio/webm;base64,AAAA..."
-        const base64 = reader.result.split(",")[1]; // raw Base64 only
+        const base64 = reader.result.split(",")[1];
         resolve(base64);
       };
       reader.onerror = reject;

@@ -26,7 +26,6 @@ export const handleMessage = async (
   ];
 
   messages.push({ role: "user", content });
-  console.log(messages, "messages");
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -77,7 +76,7 @@ export const handleMessage = async (
   }
 
   const parsed = JSON.parse(fullText);
-  console.log(parsed, "parsed");
+
   messages.push({ role: "assistant", content: parsed.message ?? "" });
 
   return {
