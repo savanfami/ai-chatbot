@@ -2,6 +2,7 @@ import { openai } from "../config/openai";
 import { SYSTEM_PROMPT } from "../utils/prompts";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
+import { searchRelevantDocs } from "../utils/helpers";
 
 const ResponseSchema = z.object({
   message: z.string().nullable(),
@@ -24,8 +25,15 @@ export const handleMessage = async (
   const messages = conversations.get(from) ?? [
     { role: "system", content: SYSTEM_PROMPT },
   ];
+  const contextDocs = await searchRelevantDocs(content);
+  const context = contextDocs.join("\n\n");
+  messages.push({
+    role: "system",
+    content: `Use the context below to answer. If not found, say you don't know.
 
-  messages.push({ role: "user", content });
+Context:
+${context}`,
+  });
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o",

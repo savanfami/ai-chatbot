@@ -210,7 +210,6 @@ export const setupChatSocket = (io: Server) => {
         streamCartesiaTTS(
           text,
           (chunk) => {
-            console.log(chunk, "chunkkkkkkkkkkkkk");
             socket.emit("audio_response_chunk", {
               from: to,
               to: from,
