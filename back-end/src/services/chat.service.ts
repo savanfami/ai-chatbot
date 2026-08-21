@@ -9,10 +9,7 @@ const ResponseSchema = z.object({
   assignee: z.string().nullable(),
   type: z.enum(["message", "assign_task"]),
   task: z.string().nullable(),
-  deadline: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable(),
+  deadline: z.string().nullable(),
 });
 
 export const conversations = new Map<string, any[]>();
@@ -26,6 +23,7 @@ export const handleMessage = async (
     { role: "system", content: SYSTEM_PROMPT },
   ];
   const contextDocs = await searchRelevantDocs(content);
+  console.log("Retrieved RAG Context Docs:", contextDocs);
   const context = contextDocs.join("\n\n");
   messages.push({
     role: "system",
@@ -35,8 +33,15 @@ Context:
 ${context}`,
   });
 
+  messages.push({
+    role: "user",
+    content,
+  });
+
+  // Model selection (Uses Groq openai/gpt-oss-20b by default, or OpenAI gpt-4o if configured)
+  // Previous OpenAI line: model: "gpt-4o",
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: process.env.MODEL_NAME || (process.env.GROQ_API_KEY ? "openai/gpt-oss-20b" : "gpt-4o"),
     messages,
     stream: true,
     response_format: zodResponseFormat(ResponseSchema, "response"),

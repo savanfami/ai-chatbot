@@ -2,6 +2,8 @@ import { openai } from "../config/openai";
 import { pinecone } from "../config/pinecone";
 import fs from "fs";
 import path from "path";
+import { getLocalEmbedding } from "./local-embeddings";
+
 export function splitChunk(text: string, chunkSize = 500) {
   const paragraphs = text.split("\n");
   const chunks: string[] = [];
@@ -23,50 +25,65 @@ export function splitChunk(text: string, chunkSize = 500) {
   return chunks;
 }
 
+// ============================================================================
+// EMBEDDINGS FUNCTION
+// ============================================================================
 async function getEmbedding(text: string) {
+  // 1. Free Local Embeddings (@xenova/transformers - 384 dimensions)
+  return await getLocalEmbedding(text);
+
+  /*
+  // 2. Previous OpenAI Embeddings (1536 dimensions)
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: text,
   });
-
   return response.data[0].embedding;
+  */
 }
 
 export const index = pinecone.index(
-  "rag-learning",
-  "https://rag-learning-4a2bac7.svc.aped-4627-b74a.pinecone.io",
+  process.env.PINECONE_INDEX_NAME || "rag-learning"
+  // Previous hardcoded URL: "https://rag-learning-4a2bac7.svc.aped-4627-b74a.pinecone.io"
 );
 
 export async function storeDocuments(docs: string[]) {
   const validDocs = docs.map((d) => d.trim()).filter(Boolean);
 
-  // console.log("Valid docs:", validDocs.length);
-
   if (!validDocs.length) {
     throw new Error("No valid docs");
   }
 
+  // 1. Free Local Embeddings (@xenova/transformers - 384 dimensions)
+  const embeddings = await Promise.all(
+    validDocs.map((doc) => getLocalEmbedding(doc))
+  );
+
+  const vectors: any = validDocs.map((doc, i) => ({
+    id: `doc-${i}`,
+    values: embeddings[i],
+    metadata: { text: doc },
+  }));
+
+  /*
+  // 2. Previous OpenAI Embeddings (1536 dimensions)
   const response = await openai.embeddings.create({
     model: "text-embedding-3-small",
     input: validDocs,
   });
-  console.log(response, "respone");
 
   const vectors: any = validDocs.map((doc, i) => ({
     id: `doc-${i}`,
     values: response.data[i].embedding,
     metadata: { text: doc },
   }));
+  */
 
-  console.log("Vectors:", vectors.length);
+  console.log("Vectors created locally:", vectors.length);
 
   if (!vectors.length) {
     throw new Error("No vectors created");
   }
-  console.log("typeof vectors:", typeof vectors);
-  console.log("Array.isArray:", Array.isArray(vectors));
-  console.log("vectors length right before upsert:", vectors.length);
-  console.log("vectors[0]:", vectors[0]);
 
   await index.upsert(vectors);
 }
