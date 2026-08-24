@@ -14,6 +14,44 @@ const ResponseSchema = z.object({
 
 export const conversations = new Map<string, any[]>();
 
+const SELECTED_MODEL = process.env.MODEL_NAME || (process.env.GROQ_API_KEY ? "openai/gpt-oss-20b" : "gpt-4o");
+
+/**
+ * Contextualization: Reformulates follow-up queries using chat history so Pinecone vector search receives standalone entities.
+ */
+async function reformulateQuery(messagesHistory: any[], userQuery: string): Promise<string> {
+  const historyTurns = messagesHistory.filter((m) => m.role === "user" || m.role === "assistant");
+  if (historyTurns.length === 0) {
+    return userQuery;
+  }
+
+  try {
+    const prompt = `Given the chat history below and a follow-up question, rewrite the follow-up question into a standalone search query that includes all necessary names, subjects, and context. Do NOT answer the question, output ONLY the rewritten standalone question.
+
+Chat History:
+${historyTurns.slice(-4).map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n")}
+
+Follow-Up Question: ${userQuery}
+Standalone Search Query:`;
+
+    const completion = await openai.chat.completions.create({
+      model: SELECTED_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      stream: false,
+    });
+
+    const standalone = completion.choices[0]?.message?.content?.trim();
+    if (standalone && standalone.length > 3) {
+      console.log(`🔍 Reformulated Query: "${userQuery}" ──> "${standalone}"`);
+      return standalone;
+    }
+  } catch (err) {
+    console.warn("Query reformulation fallback, using raw query:", err);
+  }
+
+  return userQuery;
+}
+
 export const handleMessage = async (
   from: string,
   content: string,
@@ -22,9 +60,15 @@ export const handleMessage = async (
   const messages = conversations.get(from) ?? [
     { role: "system", content: SYSTEM_PROMPT },
   ];
-  const contextDocs = await searchRelevantDocs(content);
+
+  // 1. Reformulate follow-up queries using conversation history
+  const standaloneQuery = await reformulateQuery(messages, content);
+
+  // 2. Search Pinecone vector DB with the standalone query
+  const contextDocs = await searchRelevantDocs(standaloneQuery);
   console.log("Retrieved RAG Context Docs:", contextDocs);
   const context = contextDocs.join("\n\n");
+
   messages.push({
     role: "system",
     content: `Use the context below to answer. If not found, say you don't know.
@@ -39,12 +83,11 @@ ${context}`,
   });
 
   // Model selection (Uses Groq openai/gpt-oss-20b by default, or OpenAI gpt-4o if configured)
-  // Previous OpenAI line: model: "gpt-4o",
   const completion = await openai.chat.completions.create({
-    model: process.env.MODEL_NAME || (process.env.GROQ_API_KEY ? "openai/gpt-oss-20b" : "gpt-4o"),
+    model: SELECTED_MODEL,
     messages,
     stream: true,
-    response_format: zodResponseFormat(ResponseSchema, "response"),
+    response_format: { type: "json_object" },
   });
 
   let fullText = "";
@@ -88,7 +131,15 @@ ${context}`,
     }
   }
 
-  const parsed = JSON.parse(fullText);
+  let parsed: any = {};
+  try {
+    parsed = JSON.parse(fullText);
+  } catch (err) {
+    parsed = { type: "message", message: visibleText || fullText };
+  }
+
+  parsed.type = parsed.type || "message";
+  parsed.message = parsed.message ?? visibleText;
 
   messages.push({ role: "assistant", content: parsed.message ?? "" });
 

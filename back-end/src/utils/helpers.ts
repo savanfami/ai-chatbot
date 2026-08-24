@@ -59,8 +59,9 @@ export async function storeDocuments(docs: string[]) {
     validDocs.map((doc) => getLocalEmbedding(doc))
   );
 
+  const timestamp = Date.now();
   const vectors: any = validDocs.map((doc, i) => ({
-    id: `doc-${i}`,
+    id: `doc-${timestamp}-${Math.random().toString(36).substring(2, 7)}-${i}`,
     values: embeddings[i],
     metadata: { text: doc },
   }));

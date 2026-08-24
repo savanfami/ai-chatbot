@@ -16,6 +16,31 @@ export const Chat = ({ currentUser, socket }) => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setIsUploading(true);
+    try {
+      const res = await axios.post("http://localhost:3001/upload-document", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      alert(`✅ ${res.data.message}`);
+    } catch (err) {
+      console.error("Document upload error:", err);
+      alert(`❌ Upload failed: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   // Audio playback refs
   const audioContextRef = useRef(null);
@@ -576,6 +601,40 @@ export const Chat = ({ currentUser, socket }) => {
             </div>
 
             <div style={styles.inputBar}>
+              {/* 📎 DOCUMENT UPLOAD BUTTON */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".txt,.pdf,.docx,.doc,.pptx,.ppt,.json,.md,.csv"
+                style={{ display: "none" }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  border: "none",
+                  marginRight: 8,
+                  background: isUploading ? "#fbbf24" : "#e5e7eb",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.2s ease",
+                }}
+                title={
+                  isUploading
+                    ? "Indexing document into Pinecone..."
+                    : "Upload document (.txt, .pdf, .docx, .pptx, .json)"
+                }
+              >
+                {isUploading ? "⏳" : "📎"}
+              </button>
+
               <input
                 style={styles.input}
                 value={message}
